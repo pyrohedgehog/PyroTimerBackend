@@ -1,5 +1,4 @@
 import os
-# import MYSQL
 import bson as bson
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
@@ -35,11 +34,12 @@ class User(db.Model, CustomSerializerMixin):
         self.username = username
         self.email = email
         self.salt = genSalt()
-        self.password = hashpassword(email, password)
-
+        self.password = hashPassword(self.salt, password)
 
     def __repr__(self):
         return '<User %r>' % self.username
+
+
 def genSalt():
     return str(os.urandom(120))
 
@@ -67,14 +67,34 @@ class Task(db.Model, CustomSerializerMixin):
 
     def __init__(self, id, writeID, readID, title, info):
         self.id = id
+        self.public = False
         self.writeIDs = convToArray([writeID])
         self.readIDs = convToArray([readID])
         self.title = title
         self.info = info
         self.linkedTasks = ''  # an empty array
 
+    def __repr__(self):
+        return "id:{}, writeIDs:{}, readIDs{}, public:{}, title:{}, info:{}, linkedTasks:{}".format(
+            self.id, self.writeIDs, self.readIDs, self.public, self.title, self.info, self.linkedTasks)
 
-def hashpassword(salt, plaintext):
+    def getLinkedTasks(self):
+        tasks = []
+        for x in convFromArray(self.linkedTasks):
+            tasks.append(self.query.filter_by(id=int(x)).first())
+        return tasks
+
+    def getAllLinkedTasks(self, tasks):
+        # yes its repeating code, but its more efficient repeating code
+        for x in convFromArray(self.linkedTasks):
+            foo = self.query.filter_by(id=int(x)).first()
+            if foo not in tasks:
+                tasks.append(foo)
+                foo.getAllLinkedTasks(tasks)
+        # return tasks
+
+
+def hashPassword(salt, plaintext):
     return str(hash((salt, plaintext)))
 
 
@@ -85,12 +105,39 @@ def getUser():
     else:
         re = request.json
 
-# db.create_all()  # In case user table doesn't exists already. Else remove it.
-# user = User("test",'Test', 'password')
-#
-# db.session.add(user)
-# db.session.commit()
 
-# User.query.filter_by(username='admin').first()
+@app.route('/getAllTasks', methods=['GET'])
+def getAllTasks():
+    if not request.json:
+        return "Error, no user given"
+    try:
+        re = request.json
+        firstTask = re['defaultTask']
+        task = getTaskById(firstTask)
+        tasks = []
+        task.getAllLinkedTasks(tasks)
+        return json.dumps(tasks)
+    except Exception as e:
+        return str(e)
 
 
+@app.route('/getTask', methods=["GET"])
+def getTask():
+    if not request.json:
+        return "No ID given"
+    try:
+        re = request.json
+        return json.dumps(getTaskById(int(re['id'])))
+    except Exception as e:
+        return str(e)
+
+
+def getTaskById(id):
+    return Task.query.filter_by(id=int(id)).first()
+
+
+if __name__ == "__main__":
+    #    db.create_all()
+    app.jinja_env.auto_reload = True
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
+    app.run(debug=True)
